@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1. 페이지 설정
 st.set_page_config(page_title="실시간 싸싸의 주식 앱", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 디자인 (이전 버전 Light Mode 유지)
+# 2. 디자인 (Light Mode 유지)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 매핑 (엘지전자 포함)
+# 3. 데이터 매핑 (엘지전자 교체)
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -41,28 +41,21 @@ MARKET_DISPLAY_NAMES = {
     "USDKRW=X": "원/달러 환율", "CL=F": "WTI 원유", "GC=F": "금 선물", "BTC-USD": "비트코인"
 }
 
-@st.cache_data(ttl=30) # 실시간성을 위해 캐시 시간을 30초로 단축
-def get_live_data(ticker):
+@st.cache_data(ttl=60)
+def get_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 차트용 1년치 데이터
+        # 안정적인 1년치 데이터 호출
         df = stock.history(period="1y", interval="1d")
         if df.empty: return None
         
-        # [중요] 실시간 가격 및 변동률 강제 동기화 (basic_info 사용)
-        live_info = stock.basic_info
-        curr_price = live_info['last_price']
-        prev_close = live_info['previous_close']
-        pct_change = ((curr_price - prev_close) / prev_close) * 100
-        
-        # [오류 수정] 0원 데이터 제거 (긴 막대기 방지)
+        # [오류 수정] 가격이 0원인 비정상 데이터 제거 (긴 막대기 방지)
         df = df[df['Low'] > 0]
         
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
         df['MA60'] = df['Close'].rolling(window=60).mean()
-        
-        return {"data": df, "ticker": ticker, "curr_price": curr_price, "pct": pct_change}
+        return {"data": df, "ticker": ticker}
     except:
         return None
 
@@ -92,8 +85,7 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (30초로 단축하여 실시간성 강화)
-st_autorefresh(interval=30000, key="data_refresh")
+st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 
@@ -101,10 +93,12 @@ tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 with tab1:
     my_tickers = list(STOCK_NAMES.keys())
     for ticker in my_tickers:
-        stock_info = get_live_data(ticker)
+        stock_info = get_data(ticker)
         if stock_info:
-            curr_price = stock_info['curr_price']
-            pct = stock_info['pct']
+            df = stock_info['data']
+            curr_price = df['Close'].iloc[-1]
+            prev_price = df['Close'].iloc[-2]
+            pct = ((curr_price - prev_price) / prev_price) * 100
             color = "price-up" if pct >= 0 else "price-down"
             kor_name = STOCK_NAMES[ticker]
             
@@ -114,7 +108,7 @@ with tab1:
                     <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{pct:+.2f}%</span></div>
                 </div>
             """, unsafe_allow_html=True)
-            st.plotly_chart(create_stock_chart(stock_info['data'], kor_name), use_container_width=True, config={'displayModeBar': False})
+            st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
 
 # --- [탭 2: 글로벌 지수] ---
 with tab2:
@@ -126,21 +120,20 @@ with tab2:
         st.subheader(cat)
         cols = st.columns(len(tickers))
         for i, t in enumerate(tickers):
-            # 지수도 실시간 basic_info 사용
-            s = yf.Ticker(t)
-            info = s.basic_info
-            curr = info['last_price']
-            prev = info['previous_close']
-            pct = ((curr - prev) / prev) * 100
-            color = "price-up" if pct >= 0 else "price-down"
-            display_name = MARKET_DISPLAY_NAMES.get(t, t)
-            unit = "원" if "환율" in display_name else ""
-            
-            with cols[i]:
-                st.markdown(f"""
-                    <div class="market-card">
-                        <div class="market-name">{display_name}</div>
-                        <div class="market-price" style="font-size:1.1rem;">{curr:,.2f}{unit}</div>
-                        <div class="{color}" style="font-weight:600; font-size:0.8rem;">{pct:+.2f}%</div>
-                    </div>
-                """, unsafe_allow_html=True)
+            s = yf.Ticker(t).history(period="2d")
+            if not s.empty:
+                curr = s['Close'].iloc[-1]
+                prev = s['Close'].iloc[-2]
+                pct = ((curr - prev) / prev) * 100
+                color = "price-up" if pct >= 0 else "price-down"
+                display_name = MARKET_DISPLAY_NAMES.get(t, t)
+                unit = "원" if "환율" in display_name else ""
+                
+                with cols[i]:
+                    st.markdown(f"""
+                        <div class="market-card">
+                            <div class="market-name">{display_name}</div>
+                            <div class="market-price" style="font-size:1.1rem;">{curr:,.2f}{unit}</div>
+                            <div class="{color}" style="font-weight:600; font-size:0.8rem;">{pct:+.2f}%</div>
+                        </div>
+                    """, unsafe_allow_html=True)
