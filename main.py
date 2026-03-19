@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 종목 및 이름 매핑 (엘지전자 포함)
+# 3. 종목 매핑 (엘지전자 포함)
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -42,38 +42,50 @@ MARKET_DISPLAY_NAMES = {
 }
 
 @st.cache_data(ttl=30)
-def get_data(ticker):
+def get_realtime_chart_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # [실시간성 강화] 최근 5일 데이터를 1분 단위로 가져와 가장 마지막 가격을 실시간가로 사용
-        live_df = stock.history(period="5d", interval="1m")
-        # 차트용 1년 데이터
-        hist_df = stock.history(period="1y", interval="1d")
+        # 1. 과거 1년치 일봉 데이터
+        df_daily = stock.history(period="1y", interval="1d")
+        # 2. 현재 시각 기준 1분 단위 데이터 (실시간 시세 포함)
+        df_now = stock.history(period="1d", interval="1m")
         
-        if hist_df.empty: return None
-        
-        # [오류 수정] 가격이 0원인 데이터 제거 (긴 막대기 방지)
-        hist_df = hist_df[hist_df['Low'] > 0]
-        
-        # 최신 가격 결정
-        if not live_df.empty:
-            curr_price = live_df['Close'].iloc[-1]
-            prev_close = stock.history(period="2d")['Close'].iloc[-2]
-            pct = ((curr_price - prev_close) / prev_close) * 100
-        else:
-            curr_price = hist_df['Close'].iloc[-1]
-            prev_close = hist_df['Close'].iloc[-2]
-            pct = ((curr_price - prev_close) / prev_close) * 100
+        if df_daily.empty: return None
 
-        hist_df['MA5'] = hist_df['Close'].rolling(window=5).mean()
-        hist_df['MA20'] = hist_df['Close'].rolling(window=20).mean()
-        hist_df['MA60'] = hist_df['Close'].rolling(window=60).mean()
+        # 3. 오늘 데이터가 있으면 일봉 형식으로 요약하여 마지막 행에 강제 합치기
+        if not df_now.empty:
+            last_date = df_now.index[-1].normalize()
+            live_row = pd.DataFrame({
+                'Open': [df_now['Open'].iloc[0]],
+                'High': [df_now['High'].max()],
+                'Low': [df_now['Low'].min()],
+                'Close': [df_now['Close'].iloc[-1]],
+                'Volume': [df_now['Volume'].sum()]
+            }, index=[last_date])
+            # 기존 데이터에서 오늘 날짜와 겹치는 부분이 있다면 제거하고 새 데이터 붙이기
+            df = pd.concat([df_daily[df_daily.index < last_date], live_row])
+        else:
+            df = df_daily
+
+        # [오류 수정] 가격이 0원인 데이터 제거 (긴 막대기 방지)
+        df = df[df['Low'] > 0]
         
-        return {"data": hist_df, "ticker": ticker, "curr_price": curr_price, "pct": pct}
+        # 최신 가격 및 변동률 계산
+        curr_price = df['Close'].iloc[-1]
+        prev_close = df['Close'].iloc[-2]
+        pct = ((curr_price - prev_close) / prev_close) * 100
+
+        # 이동평균선 계산
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        df['MA60'] = df['Close'].rolling(window=60).mean()
+        
+        return {"data": df, "ticker": ticker, "curr_price": curr_price, "pct": pct}
     except:
         return None
 
 def create_stock_chart(df, ticker_name):
+    # 최근 60개 캔들만 표시
     plot_df = df.tail(60)
     fig = go.Figure(data=[go.Candlestick(
         x=plot_df.index, open=plot_df['Open'], high=plot_df['High'],
@@ -99,7 +111,7 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (60초)
+# 자동 새로고침 (60초마다 데이터 갱신)
 st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
@@ -107,7 +119,7 @@ tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
     for ticker in STOCK_NAMES.keys():
-        s_info = get_data(ticker)
+        s_info = get_realtime_chart_data(ticker)
         if s_info:
             df = s_info['data']
             curr_price = s_info['curr_price']
@@ -133,7 +145,7 @@ with tab2:
         st.subheader(cat)
         cols = st.columns(len(tickers))
         for i, t in enumerate(tickers):
-            s_data = get_data(t)
+            s_data = get_realtime_chart_data(t)
             if s_data:
                 curr = s_data['curr_price']
                 pct = s_data['pct']
