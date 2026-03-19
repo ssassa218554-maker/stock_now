@@ -42,40 +42,39 @@ MARKET_DISPLAY_NAMES = {
 }
 
 @st.cache_data(ttl=30)
-def get_realtime_chart_data(ticker):
+def get_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 1. 과거 1년치 일봉 데이터
+        # 차트용 일봉 데이터 (1년)
         df_daily = stock.history(period="1y", interval="1d")
-        # 2. 현재 시각 기준 1분 단위 데이터 (실시간 시세 포함)
-        df_now = stock.history(period="1d", interval="1m")
+        # 실시간용 분봉 데이터 (1일치 중 마지막 1분)
+        df_live = stock.history(period="1d", interval="1m")
         
         if df_daily.empty: return None
 
-        # 3. 오늘 데이터가 있으면 일봉 형식으로 요약하여 마지막 행에 강제 합치기
-        if not df_now.empty:
-            last_date = df_now.index[-1].normalize()
-            live_row = pd.DataFrame({
-                'Open': [df_now['Open'].iloc[0]],
-                'High': [df_now['High'].max()],
-                'Low': [df_now['Low'].min()],
-                'Close': [df_now['Close'].iloc[-1]],
-                'Volume': [df_now['Volume'].sum()]
-            }, index=[last_date])
-            # 기존 데이터에서 오늘 날짜와 겹치는 부분이 있다면 제거하고 새 데이터 붙이기
-            df = pd.concat([df_daily[df_daily.index < last_date], live_row])
+        # [실시간 보정] 오늘 장이 열려있다면 분봉의 마지막 데이터를 일봉 끝에 합침
+        if not df_live.empty:
+            last_dt = df_live.index[-1]
+            # 오늘 날짜의 행을 만들어서 합치기
+            today_row = pd.DataFrame({
+                'Open': [df_live['Open'].iloc[0]],
+                'High': [df_live['High'].max()],
+                'Low': [df_live['Low'].min()],
+                'Close': [df_live['Close'].iloc[-1]],
+                'Volume': [df_live['Volume'].sum()]
+            }, index=[last_dt.normalize()])
+            # 중복 날짜 제거 후 합치기
+            df = pd.concat([df_daily[df_daily.index < last_dt.normalize()], today_row])
         else:
             df = df_daily
 
-        # [오류 수정] 가격이 0원인 데이터 제거 (긴 막대기 방지)
+        # [오류 수정] 최저가가 0원인 비정상 데이터 제거 (긴 막대기 방지)
         df = df[df['Low'] > 0]
         
-        # 최신 가격 및 변동률 계산
         curr_price = df['Close'].iloc[-1]
         prev_close = df['Close'].iloc[-2]
         pct = ((curr_price - prev_close) / prev_close) * 100
 
-        # 이동평균선 계산
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
         df['MA60'] = df['Close'].rolling(window=60).mean()
@@ -85,7 +84,6 @@ def get_realtime_chart_data(ticker):
         return None
 
 def create_stock_chart(df, ticker_name):
-    # 최근 60개 캔들만 표시
     plot_df = df.tail(60)
     fig = go.Figure(data=[go.Candlestick(
         x=plot_df.index, open=plot_df['Open'], high=plot_df['High'],
@@ -111,7 +109,7 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (60초마다 데이터 갱신)
+# 자동 새로고침 (60초)
 st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
@@ -119,7 +117,7 @@ tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
     for ticker in STOCK_NAMES.keys():
-        s_info = get_realtime_chart_data(ticker)
+        s_info = get_data(ticker)
         if s_info:
             df = s_info['data']
             curr_price = s_info['curr_price']
@@ -145,14 +143,13 @@ with tab2:
         st.subheader(cat)
         cols = st.columns(len(tickers))
         for i, t in enumerate(tickers):
-            s_data = get_realtime_chart_data(t)
+            s_data = get_data(t)
             if s_data:
                 curr = s_data['curr_price']
                 pct = s_data['pct']
                 color = "price-up" if pct >= 0 else "price-down"
                 display_name = MARKET_DISPLAY_NAMES.get(t, t)
                 unit = "원" if "환율" in display_name else ""
-                
                 with cols[i]:
                     st.markdown(f"""
                         <div class="market-card">
