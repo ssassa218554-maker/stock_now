@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 종목 매핑 (엘지전자 포함)
+# 3. 종목 및 이름 매핑
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -41,21 +41,20 @@ MARKET_DISPLAY_NAMES = {
     "USDKRW=X": "원/달러 환율", "CL=F": "WTI 원유", "GC=F": "금 선물", "BTC-USD": "비트코인"
 }
 
-@st.cache_data(ttl=30)
+# [핵심 수정] 실시간성을 위해 캐시(@st.cache_data)를 삭제했습니다.
 def get_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 차트용 일봉 데이터 (1년)
+        # 차트용 일봉 데이터
         df_daily = stock.history(period="1y", interval="1d")
-        # 실시간용 분봉 데이터 (1일치 중 마지막 1분)
+        # 실시간용 분봉 데이터 (최신 1분 시세 강제 호출)
         df_live = stock.history(period="1d", interval="1m")
         
         if df_daily.empty: return None
 
-        # [실시간 보정] 오늘 장이 열려있다면 분봉의 마지막 데이터를 일봉 끝에 합침
+        # 실시간 가격 보정 로직
         if not df_live.empty:
             last_dt = df_live.index[-1]
-            # 오늘 날짜의 행을 만들어서 합치기
             today_row = pd.DataFrame({
                 'Open': [df_live['Open'].iloc[0]],
                 'High': [df_live['High'].max()],
@@ -63,12 +62,11 @@ def get_data(ticker):
                 'Close': [df_live['Close'].iloc[-1]],
                 'Volume': [df_live['Volume'].sum()]
             }, index=[last_dt.normalize()])
-            # 중복 날짜 제거 후 합치기
             df = pd.concat([df_daily[df_daily.index < last_dt.normalize()], today_row])
         else:
             df = df_daily
 
-        # [오류 수정] 최저가가 0원인 비정상 데이터 제거 (긴 막대기 방지)
+        # 0원 오류 데이터 제거
         df = df[df['Low'] > 0]
         
         curr_price = df['Close'].iloc[-1]
@@ -109,8 +107,8 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (60초)
-st_autorefresh(interval=60000, key="data_refresh")
+# 자동 새로고침 (30초마다 즉시 갱신)
+st_autorefresh(interval=30000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 
