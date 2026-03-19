@@ -1,11 +1,3 @@
-네, 롱숏나우처럼 깔끔하게 보실 수 있도록 **'시장 대시보드'**의 복잡한 티커(^KS11, CL=F 등)들을 모두 친숙한 한글 이름으로 변경했습니다.
-
-이제 앱을 켜자마자 "이게 무슨 지표지?" 고민할 필요 없이 직관적으로 시장 상황을 파악하실 수 있습니다.
-
-🛠️ main.py 전체 코드 (전부 복사해서 덮어쓰세요)
-이번 코드에는 시장 지표용 한글 이름 사전을 추가하여 디자인의 완성도를 높였습니다.
-
-Python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -46,7 +38,6 @@ STOCK_NAMES = {
     "000660.KS": "SK하이닉스"
 }
 
-# 시장 지표 한글 이름 매핑 (추가된 부분)
 MARKET_DISPLAY_NAMES = {
     "^KS11": "코스피",
     "^KQ11": "코스닥",
@@ -119,7 +110,7 @@ with tab1:
             """, unsafe_allow_html=True)
             st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
 
-# --- [탭 2: 시장 대시보드 (이름 변경 완료)] ---
+# --- [탭 2: 시장 대시보드] ---
 with tab2:
     market_cats = {
         "글로벌 지수": ["^KS11", "^KQ11", "^NDX", "USDKRW=X"],
@@ -135,13 +126,8 @@ with tab2:
                 prev = s['Close'].iloc[-2]
                 pct = ((curr - prev) / prev) * 100
                 color = "price-up" if pct >= 0 else "price-down"
-                
-                # 한글 이름 가져오기 (사전에 없으면 티커 표시)
                 display_name = MARKET_DISPLAY_NAMES.get(t, t)
-                
-                # 환율은 '원' 표시, 지수는 수치만 표시 등 구분
-                unit = ""
-                if "환율" in display_name: unit = "원"
+                unit = "원" if "환율" in display_name else ""
                 
                 with cols[i]:
                     st.markdown(f"""
