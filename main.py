@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1. 페이지 설정
 st.set_page_config(page_title="실시간 싸싸의 주식 앱", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 디자인 (Light Mode 유지)
+# 2. 디자인 설정 (흰색 배경 유지)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 매핑 (엘지전자 교체)
+# 3. 종목 및 이름 매핑 (엘지전자 포함)
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -41,21 +41,35 @@ MARKET_DISPLAY_NAMES = {
     "USDKRW=X": "원/달러 환율", "CL=F": "WTI 원유", "GC=F": "금 선물", "BTC-USD": "비트코인"
 }
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def get_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 안정적인 1년치 데이터 호출
-        df = stock.history(period="1y", interval="1d")
-        if df.empty: return None
+        # [실시간성 강화] 최근 5일 데이터를 1분 단위로 가져와 가장 마지막 가격을 실시간가로 사용
+        live_df = stock.history(period="5d", interval="1m")
+        # 차트용 1년 데이터
+        hist_df = stock.history(period="1y", interval="1d")
         
-        # [오류 수정] 가격이 0원인 비정상 데이터 제거 (긴 막대기 방지)
-        df = df[df['Low'] > 0]
+        if hist_df.empty: return None
         
-        df['MA5'] = df['Close'].rolling(window=5).mean()
-        df['MA20'] = df['Close'].rolling(window=20).mean()
-        df['MA60'] = df['Close'].rolling(window=60).mean()
-        return {"data": df, "ticker": ticker}
+        # [오류 수정] 가격이 0원인 데이터 제거 (긴 막대기 방지)
+        hist_df = hist_df[hist_df['Low'] > 0]
+        
+        # 최신 가격 결정
+        if not live_df.empty:
+            curr_price = live_df['Close'].iloc[-1]
+            prev_close = stock.history(period="2d")['Close'].iloc[-2]
+            pct = ((curr_price - prev_close) / prev_close) * 100
+        else:
+            curr_price = hist_df['Close'].iloc[-1]
+            prev_close = hist_df['Close'].iloc[-2]
+            pct = ((curr_price - prev_close) / prev_close) * 100
+
+        hist_df['MA5'] = hist_df['Close'].rolling(window=5).mean()
+        hist_df['MA20'] = hist_df['Close'].rolling(window=20).mean()
+        hist_df['MA60'] = hist_df['Close'].rolling(window=60).mean()
+        
+        return {"data": hist_df, "ticker": ticker, "curr_price": curr_price, "pct": pct}
     except:
         return None
 
@@ -85,20 +99,19 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
+# 자동 새로고침 (60초)
 st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
-    my_tickers = list(STOCK_NAMES.keys())
-    for ticker in my_tickers:
-        stock_info = get_data(ticker)
-        if stock_info:
-            df = stock_info['data']
-            curr_price = df['Close'].iloc[-1]
-            prev_price = df['Close'].iloc[-2]
-            pct = ((curr_price - prev_price) / prev_price) * 100
+    for ticker in STOCK_NAMES.keys():
+        s_info = get_data(ticker)
+        if s_info:
+            df = s_info['data']
+            curr_price = s_info['curr_price']
+            pct = s_info['pct']
             color = "price-up" if pct >= 0 else "price-down"
             kor_name = STOCK_NAMES[ticker]
             
@@ -120,11 +133,10 @@ with tab2:
         st.subheader(cat)
         cols = st.columns(len(tickers))
         for i, t in enumerate(tickers):
-            s = yf.Ticker(t).history(period="2d")
-            if not s.empty:
-                curr = s['Close'].iloc[-1]
-                prev = s['Close'].iloc[-2]
-                pct = ((curr - prev) / prev) * 100
+            s_data = get_data(t)
+            if s_data:
+                curr = s_data['curr_price']
+                pct = s_data['pct']
                 color = "price-up" if pct >= 0 else "price-down"
                 display_name = MARKET_DISPLAY_NAMES.get(t, t)
                 unit = "원" if "환율" in display_name else ""
