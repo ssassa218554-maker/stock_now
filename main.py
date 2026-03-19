@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta  # timedelta 추가 (시간 계산용)
 from streamlit_autorefresh import st_autorefresh
 
 # 1. 페이지 설정
@@ -29,7 +29,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 및 한글 이름 매핑
+# 3. 데이터 및 이름 매핑
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -72,29 +72,23 @@ def create_stock_chart(df, ticker_name):
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['MA20'], line=dict(color='#8A2BE2', width=1.2), name="20일선"))
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['MA60'], line=dict(color='#1E90FF', width=1.2), name="60일선"))
     
-    # [핵심 변경 사항] fixedrange=True 추가하여 스케일 고정
     fig.update_layout(
         template="plotly_white", plot_bgcolor='#ffffff', paper_bgcolor='#ffffff',
         height=350, margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(
-            rangeslider_visible=False, 
-            gridcolor='#f1f3f5',
-            fixedrange=True  # 터치/드래그로 인한 가로 스케일 변경 차단
-        ),
-        yaxis=dict(
-            gridcolor='#f1f3f5', 
-            side="right",
-            fixedrange=True  # 터치/드래그로 인한 세로 스케일 변경 차단
-        ),
+        xaxis=dict(rangeslider_visible=False, gridcolor='#f1f3f5', fixedrange=True),
+        yaxis=dict(gridcolor='#f1f3f5', side="right", fixedrange=True),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10)),
-        dragmode=False # 드래그 기능 자체를 끔 (스크롤 방해 금지)
+        dragmode=False
     )
     return fig
 
-# --- 메인 헤더 ---
+# --- 메인 헤더 (시간대 수정 완료) ---
 st.title("🚀 실시간 싸싸의 주식 앱")
-st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 표시
+kst_now = datetime.now() + timedelta(hours=9)
+st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
+# 자동 새로고침 (60초)
 st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
@@ -118,8 +112,7 @@ with tab1:
                     <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{pct:+.2f}%</span></div>
                 </div>
             """, unsafe_allow_html=True)
-            # config 설정으로 줌 기능을 완전히 비활성화
-            st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False})
+            st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
 
 # --- [탭 2: 글로벌 지수] ---
 with tab2:
