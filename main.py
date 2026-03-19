@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, timedelta  # timedelta 추가 (시간 계산용)
+from datetime import datetime, timedelta
 from streamlit_autorefresh import st_autorefresh
 
 # 1. 페이지 설정
@@ -29,13 +29,13 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 및 이름 매핑
+# 3. [수정됨] 종목 매핑 (엘지전자 추가)
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
     "323410.KS": "카카오뱅크",
     "033050.KQ": "제이엠아이",
-    "000660.KS": "SK하이닉스"
+    "066570.KS": "엘지전자"  # 하이닉스 대신 엘지전자 번호 입력
 }
 
 MARKET_DISPLAY_NAMES = {
@@ -82,13 +82,19 @@ def create_stock_chart(df, ticker_name):
     )
     return fig
 
-# --- 메인 헤더 (시간대 수정 완료) ---
+# --- [수정됨] 사이드바: 보유 수량 설정 ---
+with st.sidebar:
+    st.header("💰 나의 자산 설정")
+    samsung_qty = st.number_input("삼성전자 보유 수량", value=90)
+    lg_qty = st.number_input("엘지전자 보유 수량", value=20) # 하이닉스 -> 엘지전자
+    st.divider()
+    st.caption("실시간 싸싸의 주식 앱 v1.5")
+
+# --- 메인 헤더 ---
 st.title("🚀 실시간 싸싸의 주식 앱")
-# 서버 시간(UTC)에 9시간을 더해 한국 시간(KST)으로 표시
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (60초)
 st_autorefresh(interval=60000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
@@ -96,23 +102,43 @@ tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
     my_tickers = list(STOCK_NAMES.keys())
+    
+    # [수정됨] 총 자산 실시간 계산 로직
+    total_val_krw = 0
+    stocks_data_list = []
+    
     for ticker in my_tickers:
         stock_info = get_data(ticker)
         if stock_info:
-            df = stock_info['data']
-            curr_price = df['Close'].iloc[-1]
-            prev_price = df['Close'].iloc[-2]
-            pct = ((curr_price - prev_price) / prev_price) * 100
-            color = "price-up" if pct >= 0 else "price-down"
-            kor_name = STOCK_NAMES[ticker]
+            stocks_data_list.append(stock_info)
+            curr_price = stock_info['data']['Close'].iloc[-1]
             
-            st.markdown(f"""
-                <div class="market-card">
-                    <div class="market-name">{kor_name} ({ticker})</div>
-                    <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{pct:+.2f}%</span></div>
-                </div>
-            """, unsafe_allow_html=True)
-            st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
+            # 삼성전자와 엘지전자만 수량을 곱해 총자산에 합산
+            if ticker == "005930.KS":
+                total_val_krw += curr_price * samsung_qty
+            elif ticker == "066570.KS": # 엘지전자 번호로 체크
+                total_val_krw += curr_price * lg_qty
+
+    # 상단 총 자산 메트릭 출력
+    st.metric("나의 총 주식 자산 (삼성+엘지)", f"{total_val_krw:,.0f}원")
+    st.divider()
+
+    # 종목별 카드 및 차트 출력
+    for s in stocks_data_list:
+        df = s['data']
+        curr_price = df['Close'].iloc[-1]
+        prev_price = df['Close'].iloc[-2]
+        pct = ((curr_price - prev_price) / prev_price) * 100
+        color = "price-up" if pct >= 0 else "price-down"
+        kor_name = STOCK_NAMES[s['ticker']]
+        
+        st.markdown(f"""
+            <div class="market-card">
+                <div class="market-name">{kor_name} ({s['ticker']})</div>
+                <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{pct:+.2f}%</span></div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
 
 # --- [탭 2: 글로벌 지수] ---
 with tab2:
