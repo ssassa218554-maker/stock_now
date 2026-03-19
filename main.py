@@ -1,3 +1,11 @@
+네, 롱숏나우처럼 깔끔하게 보실 수 있도록 **'시장 대시보드'**의 복잡한 티커(^KS11, CL=F 등)들을 모두 친숙한 한글 이름으로 변경했습니다.
+
+이제 앱을 켜자마자 "이게 무슨 지표지?" 고민할 필요 없이 직관적으로 시장 상황을 파악하실 수 있습니다.
+
+🛠️ main.py 전체 코드 (전부 복사해서 덮어쓰세요)
+이번 코드에는 시장 지표용 한글 이름 사전을 추가하여 디자인의 완성도를 높였습니다.
+
+Python
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -14,7 +22,6 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #fcfcfc; color: #333333; }
     
-    /* 카드 디자인 */
     .market-card {
         background: #ffffff; padding: 15px; border-radius: 12px;
         border: 1px solid #e9ecef; margin-bottom: 5px;
@@ -24,13 +31,9 @@ st.markdown("""
     .market-price { font-size: 1.4rem; font-weight: 700; color: #000000; }
     .price-up { color: #10b981; } .price-down { color: #ef4444; }
     
-    /* 탭 디자인 */
     .stTabs [data-baseweb="tab-list"] { background-color: #ffffff; border-radius: 10px; padding: 5px; border: 1px solid #e9ecef; }
     .stTabs [data-baseweb="tab"] { color: #6c757d !important; font-weight: 600 !important; }
     .stTabs [data-baseweb="tab"][aria-selected="true"] { background-color: #3b82f6 !important; border-radius: 8px !important; color: #ffffff !important; }
-    
-    /* 차트 상단 간격 조절 */
-    .element-container { margin-top: -5px !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,6 +44,17 @@ STOCK_NAMES = {
     "323410.KS": "카카오뱅크",
     "033050.KQ": "제이엠아이",
     "000660.KS": "SK하이닉스"
+}
+
+# 시장 지표 한글 이름 매핑 (추가된 부분)
+MARKET_DISPLAY_NAMES = {
+    "^KS11": "코스피",
+    "^KQ11": "코스닥",
+    "^NDX": "나스닥 100",
+    "USDKRW=X": "원/달러 환율",
+    "CL=F": "WTI 원유",
+    "GC=F": "금 선물",
+    "BTC-USD": "비트코인"
 }
 
 @st.cache_data(ttl=60)
@@ -56,7 +70,6 @@ def get_data(ticker):
     except:
         return None
 
-# 차트 그리기 함수 (가로가 너무 길지 않게 높이 조절)
 def create_stock_chart(df, ticker_name):
     plot_df = df.tail(60)
     fig = go.Figure(data=[go.Candlestick(
@@ -64,16 +77,13 @@ def create_stock_chart(df, ticker_name):
         low=plot_df['Low'], close=plot_df['Close'], name="주가",
         increasing_line_color='#10b981', decreasing_line_color='#ef4444'
     )])
-    
-    # 이동평균선 (흰색 배경 최적화 색상)
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['MA5'], line=dict(color='#BF9B30', width=1.2), name="5일선"))
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['MA20'], line=dict(color='#8A2BE2', width=1.2), name="20일선"))
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['MA60'], line=dict(color='#1E90FF', width=1.2), name="60일선"))
     
     fig.update_layout(
         template="plotly_white", plot_bgcolor='#ffffff', paper_bgcolor='#ffffff',
-        height=350, # 아이폰에서 적절한 세로 길이 (가로로 너무 길어 보이지 않게 조절)
-        margin=dict(l=10, r=10, t=10, b=10),
+        height=350, margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(rangeslider_visible=False, gridcolor='#f1f3f5'),
         yaxis=dict(gridcolor='#f1f3f5', side="right"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
@@ -84,16 +94,13 @@ def create_stock_chart(df, ticker_name):
 st.title("🚀 실시간 싸싸의 주식 앱")
 st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (60초)
 st_autorefresh(interval=60000, key="data_refresh")
 
-# 4. 탭 구성 (분석 탭 삭제)
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 시장 대시보드"])
 
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
     my_tickers = list(STOCK_NAMES.keys())
-    
     for ticker in my_tickers:
         stock_info = get_data(ticker)
         if stock_info:
@@ -101,24 +108,18 @@ with tab1:
             curr_price = df['Close'].iloc[-1]
             prev_price = df['Close'].iloc[-2]
             pct = ((curr_price - prev_price) / prev_price) * 100
-            
             color = "price-up" if pct >= 0 else "price-down"
-            sign = "+" if pct >= 0 else ""
             kor_name = STOCK_NAMES[ticker]
             
-            # 상단 요약 카드
             st.markdown(f"""
                 <div class="market-card">
                     <div class="market-name">{kor_name} ({ticker})</div>
-                    <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{sign}{pct:.2f}%</span></div>
+                    <div class="market-price">{curr_price:,.0f}원 <span class="{color}" style="font-size: 0.9rem; margin-left:10px;">{pct:+.2f}%</span></div>
                 </div>
             """, unsafe_allow_html=True)
-            
-            # 차트 출력 (높이 조절됨)
             st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
-            st.write("") # 간격
 
-# --- [탭 2: 시장 대시보드] ---
+# --- [탭 2: 시장 대시보드 (이름 변경 완료)] ---
 with tab2:
     market_cats = {
         "글로벌 지수": ["^KS11", "^KQ11", "^NDX", "USDKRW=X"],
@@ -134,11 +135,19 @@ with tab2:
                 prev = s['Close'].iloc[-2]
                 pct = ((curr - prev) / prev) * 100
                 color = "price-up" if pct >= 0 else "price-down"
+                
+                # 한글 이름 가져오기 (사전에 없으면 티커 표시)
+                display_name = MARKET_DISPLAY_NAMES.get(t, t)
+                
+                # 환율은 '원' 표시, 지수는 수치만 표시 등 구분
+                unit = ""
+                if "환율" in display_name: unit = "원"
+                
                 with cols[i]:
                     st.markdown(f"""
                         <div class="market-card">
-                            <div class="market-name">{t}</div>
-                            <div class="market-price" style="font-size:1.1rem;">{curr:,.2f}</div>
+                            <div class="market-name">{display_name}</div>
+                            <div class="market-price" style="font-size:1.1rem;">{curr:,.2f}{unit}</div>
                             <div class="{color}" style="font-weight:600; font-size:0.8rem;">{pct:+.2f}%</div>
                         </div>
                     """, unsafe_allow_html=True)
