@@ -29,7 +29,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 로드 및 한글 이름 매핑
+# 3. 데이터 및 이름 매핑
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -87,7 +87,8 @@ st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 st_autorefresh(interval=60000, key="data_refresh")
 
-tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 시장 대시보드"])
+# 4. 탭 이름 변경 (글로벌 지수)
+tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
 
 # --- [탭 1: 나의 종목 현황] ---
 with tab1:
@@ -110,7 +111,7 @@ with tab1:
             """, unsafe_allow_html=True)
             st.plotly_chart(create_stock_chart(df, kor_name), use_container_width=True, config={'displayModeBar': False})
 
-# --- [탭 2: 시장 대시보드] ---
+# --- [탭 2: 글로벌 지수] ---
 with tab2:
     market_cats = {
         "글로벌 지수": ["^KS11", "^KQ11", "^NDX", "USDKRW=X"],
