@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # 1. 페이지 설정
 st.set_page_config(page_title="실시간 싸싸의 주식 앱", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. 디자인 설정 (흰색 배경 유지)
+# 2. 디자인 설정 (이전의 깔끔한 화이트 모드 유지)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -27,7 +27,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 종목 및 이름 매핑
+# 3. 종목 구성 (하이닉스 -> 엘지전자 교체 완료)
 STOCK_NAMES = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -41,38 +41,45 @@ MARKET_DISPLAY_NAMES = {
     "USDKRW=X": "원/달러 환율", "CL=F": "WTI 원유", "GC=F": "금 선물", "BTC-USD": "비트코인"
 }
 
-# [핵심 수정] 실시간성을 위해 캐시(@st.cache_data)를 삭제했습니다.
+# [데이터 로드] 캐시 없이 매번 새로 가져오며 실시간성을 극대화함
 def get_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # 차트용 일봉 데이터
+        # 차트용 일봉 (1년)
         df_daily = stock.history(period="1y", interval="1d")
-        # 실시간용 분봉 데이터 (최신 1분 시세 강제 호출)
+        # 실시간용 분봉 (오늘 하루치 1분 단위)
         df_live = stock.history(period="1d", interval="1m")
         
         if df_daily.empty: return None
 
-        # 실시간 가격 보정 로직
+        # 실시간 가격 강제 합치기 (오늘의 1분 단위 마지막 가격을 일봉 끝에 연결)
         if not df_live.empty:
             last_dt = df_live.index[-1]
-            today_row = pd.DataFrame({
+            live_price = df_live['Close'].iloc[-1]
+            
+            today_summary = pd.DataFrame({
                 'Open': [df_live['Open'].iloc[0]],
                 'High': [df_live['High'].max()],
                 'Low': [df_live['Low'].min()],
-                'Close': [df_live['Close'].iloc[-1]],
+                'Close': [live_price],
                 'Volume': [df_live['Volume'].sum()]
             }, index=[last_dt.normalize()])
-            df = pd.concat([df_daily[df_daily.index < last_dt.normalize()], today_row])
+            
+            # 과거 데이터와 오늘의 실시간 요약 데이터를 합침
+            df = pd.concat([df_daily[df_daily.index < last_dt.normalize()], today_summary])
+            curr_price = live_price
         else:
             df = df_daily
+            curr_price = df['Close'].iloc[-1]
 
-        # 0원 오류 데이터 제거
+        # [오류 수정] 최저가 0원 데이터 제거 (차트 눌림 방지)
         df = df[df['Low'] > 0]
         
-        curr_price = df['Close'].iloc[-1]
+        # 변동률 계산
         prev_close = df['Close'].iloc[-2]
         pct = ((curr_price - prev_close) / prev_close) * 100
 
+        # 보조지표 계산
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
         df['MA60'] = df['Close'].rolling(window=60).mean()
@@ -107,7 +114,7 @@ st.title("🚀 실시간 싸싸의 주식 앱")
 kst_now = datetime.now() + timedelta(hours=9)
 st.caption(f"최종 업데이트 (한국 시각): {kst_now.strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 자동 새로고침 (30초마다 즉시 갱신)
+# 자동 새로고침 (30초 간격)
 st_autorefresh(interval=30000, key="data_refresh")
 
 tab1, tab2 = st.tabs(["📌 나의 종목 현황", "📊 글로벌 지수"])
@@ -141,10 +148,10 @@ with tab2:
         st.subheader(cat)
         cols = st.columns(len(tickers))
         for i, t in enumerate(tickers):
-            s_data = get_data(t)
-            if s_data:
-                curr = s_data['curr_price']
-                pct = s_data['pct']
+            g_info = get_data(t)
+            if g_info:
+                curr = g_info['curr_price']
+                pct = g_info['pct']
                 color = "price-up" if pct >= 0 else "price-down"
                 display_name = MARKET_DISPLAY_NAMES.get(t, t)
                 unit = "원" if "환율" in display_name else ""
